@@ -4,7 +4,7 @@ import os
 import numpy as np
 
 # Parameters
-width, height = 1280, 720
+width, height = 1920, 1080
 gestureThreshold = 300
 folderPath = "Presentation"
 
