@@ -8,6 +8,15 @@ width, height = 1280, 720
 gestureThreshold = 300
 folderPath = "Presentation"
 
+# Check if presentation folder exists
+if not os.path.exists(folderPath):
+    raise FileNotFoundError(f"⚠️ Folder '{folderPath}' not found. Please create it and add some slides.")
+
+# Get list of presentation images
+pathImages = sorted(os.listdir(folderPath), key=len)
+if not pathImages:
+    raise FileNotFoundError(f"⚠️ No images found in '{folderPath}'. Please add slide images.")
+
 # Camera Setup
 cap = cv2.VideoCapture(0)
 cap.set(3, width)
@@ -17,12 +26,10 @@ cap.set(4, height)
 detectorHand = HandDetector(detectionCon=0.8, maxHands=1)
 
 # Variables
-imgList = []
 delay = 30
 buttonPressed = False
 counter = 0
 imgNumber = 0
-delayCounter = 0
 annotations = [[]]
 annotationNumber = -1
 annotationStart = False
@@ -31,12 +38,13 @@ zoom_increment = 0.1
 erase_mode = False
 hs, ws = int(120 * 1), int(213 * 1)  # width and height of small image
 
-# Get list of presentation images
-pathImages = sorted(os.listdir(folderPath), key=len)
-
 while True:
     # Get image frame
     success, img = cap.read()
+    if not success:
+        print("⚠️ Camera not detected!")
+        break
+
     img = cv2.flip(img, 1)
     pathFullImage = os.path.join(folderPath, pathImages[imgNumber])
     imgCurrent = cv2.imread(pathFullImage)
@@ -52,9 +60,10 @@ while True:
         fingers = detectorHand.fingersUp(hand)
 
         xVal = int(np.interp(lmList[8][0], [width // 2, width], [0, width]))
-        yVal = int(np.interp(lmList[8][1], [150, height-150], [0, height]))
+        yVal = int(np.interp(lmList[8][1], [150, height - 150], [0, height]))
         indexFinger = xVal, yVal
 
+        # Slide Navigation
         if cy <= gestureThreshold:
             if fingers == [1, 0, 0, 0, 0]:
                 buttonPressed = True
@@ -71,9 +80,11 @@ while True:
                     annotationNumber = -1
                     annotationStart = False
 
+        # Pointer
         if fingers == [0, 1, 1, 0, 0]:
             cv2.circle(imgCurrent, indexFinger, 12, (0, 0, 255), cv2.FILLED)
 
+        # Draw
         if fingers == [0, 1, 0, 0, 0]:
             if not annotationStart:
                 annotationStart = True
@@ -84,39 +95,27 @@ while True:
         else:
             annotationStart = False
 
+        # Erase
         if fingers == [0, 1, 1, 1, 0]:
             if annotations:
                 annotations.pop(-1)
                 annotationNumber -= 1
                 buttonPressed = True
 
-        if fingers == [1, 1, 1, 1, 1]:  # All fingers up -> Zoom in
+        # Zoom
+        if fingers == [1, 1, 1, 1, 1]:
             zoom_scale += zoom_increment
             buttonPressed = True
-
-        if fingers == [0, 0, 0, 0, 0]:  # Fist -> Zoom out
+        if fingers == [0, 0, 0, 0, 0]:
             zoom_scale = max(1.0, zoom_scale - zoom_increment)
             buttonPressed = True
 
-        if fingers == [1, 1, 0, 0, 0]:  # Eraser mode
+        # Erase mode
+        if fingers == [1, 1, 0, 0, 0]:
             erase_mode = True
             buttonPressed = True
-
-        if fingers == [1, 0, 1, 0, 1]:  # Custom gesture for slide number input (Thumb, Middle, Pinky)
-            slide_input = input("Enter slide number: ")
-            try:
-                slide_number = int(slide_input)
-                if 1 <= slide_number <= len(pathImages):
-                    imgNumber = slide_number - 1
-                    annotations = [[]]
-                    annotationNumber = -1
-                    annotationStart = False
-            except ValueError:
-                print("Invalid slide number")
-
-    else:
-        annotationStart = False
-        erase_mode = False
+        else:
+            erase_mode = False
 
     if buttonPressed:
         counter += 1
@@ -124,29 +123,35 @@ while True:
             counter = 0
             buttonPressed = False
 
-    for i, annotation in enumerate(annotations):
-        for j in range(len(annotation)):
-            if j != 0:
-                if erase_mode:
-                    cv2.line(imgCurrent, annotation[j - 1], annotation[j], (255, 255, 255), 50)
-                else:
-                    cv2.line(imgCurrent, annotation[j - 1], annotation[j], (0, 0, 200), 12)
+    # Draw annotations
+    for annotation in annotations:
+        for j in range(1, len(annotation)):
+            color = (255, 255, 255) if erase_mode else (0, 0, 200)
+            thickness = 50 if erase_mode else 12
+            cv2.line(imgCurrent, annotation[j - 1], annotation[j], color, thickness)
 
-    # Apply zoom effect
+    # Zoom effect
     zoomed_img = cv2.resize(imgCurrent, None, fx=zoom_scale, fy=zoom_scale)
     center_x, center_y = width // 2, height // 2
-    cropped_img = zoomed_img[
-        int(center_y - height // 2): int(center_y + height // 2),
-        int(center_x - width // 2): int(center_x + width // 2)
-    ] if zoom_scale > 1 else zoomed_img
+    try:
+        cropped_img = zoomed_img[
+            int(center_y - height // 2): int(center_y + height // 2),
+            int(center_x - width // 2): int(center_x + width // 2)
+        ]
+    except:
+        cropped_img = imgCurrent
 
+    # Small webcam feed
     imgSmall = cv2.resize(img, (ws, hs))
     h, w, _ = cropped_img.shape
     cropped_img[0:hs, w - ws: w] = imgSmall
 
     cv2.imshow("Slides", cropped_img)
-    cv2.imshow("Image", img)
+    cv2.imshow("Camera", img)
 
     key = cv2.waitKey(1)
     if key == ord('q'):
         break
+
+cap.release()
+cv2.destroyAllWindows()
